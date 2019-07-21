@@ -1,29 +1,30 @@
 From https://www.youtube.com/watch?v=tC8Xj_Bf8Fw
-git push ÀÚ·á ¿Ã¸®±â
-git pull ÀÚ·á ¹Þ±â
-push Àü¿¡ pullÀÌ ÀÖ´Ù.
+git push ìžë£Œ ì˜¬ë¦¬ê¸°
+git pull ìžë£Œ ë°›ê¸°
+push ì „ì— pullì´ ìžˆë‹¤.
 
 git pull
 git pull origin master
-ÁöÁ¤ÇØ ³õÀº repository¿¡¼­ ²ø¾î¿Â´Ù
+ì§€ì •í•´ ë†“ì€ repositoryì—ì„œ ëŒì–´ì˜¨ë‹¤
 
-git push ¾Æ·¡ 
+git push ì•„ëž˜ 
 
 git status 
-ÇöÁ¦ ·ÎÄÃ°ú git°úÀÇ »óÅÂ check
+í˜„ì œ ë¡œì»¬ê³¼ gitê³¼ì˜ ìƒíƒœ check
  
 git add.
-º¯°æµÈ ÆÄÀÏµéÀ» ¸ðµÎ Æ®·¡Å·
-(¿©±â¼­ Á¡Àº status ¿Í ´Ù¸¥°Å ´Ù ´õÇØÁØ´Ù´Â°ÅÀÓ)
+ë³€ê²½ëœ íŒŒì¼ë“¤ì„ ëª¨ë‘ íŠ¸ëž˜í‚¹
+(ì—¬ê¸°ì„œ ì ì€ status ì™€ ë‹¤ë¥¸ê±° ë‹¤ ë”í•´ì¤€ë‹¤ëŠ”ê±°ìž„)
 
 git commit -m "message"
-º¯°æ»çÇ× ¾÷·Îµå ÇßÀ»‹š ³ª¿¡°Ô ¾Ë·ÁÁÖ´Â Ä¿¹Ô ¶Ç´Â ´Ù¸¥»ç¶÷¿¡°Ô ¾Ë·ÁÁÖ´Â°Í
+ë³€ê²½ì‚¬í•­ ì—…ë¡œë“œ í–ˆì„Â‹Âš ë‚˜ì—ê²Œ ì•Œë ¤ì£¼ëŠ” ì»¤ë°‹ ë˜ëŠ” ë‹¤ë¥¸ì‚¬ëžŒì—ê²Œ ì•Œë ¤ì£¼ëŠ”ê²ƒ
 
 git push origin +master
-½ÇÁ¦·Î git¿¡ Çª½¬¸¦ ¿äÃ»ÇÏ´Â ¸í·É¾î 
+ì‹¤ì œë¡œ gitì— í‘¸ì‰¬ë¥¼ ìš”ì²­í•˜ëŠ” ëª…ë ¹ì–´ 
 
-### ½ÇÇèÀ¸·Î ÀÌ ¾Æ·¡´Â Ãß°¡µÈ ¸Þ¼¼Áö·Î ¾î¶»°Ô ¾÷µ¥ÀÌÆ® µÇ´ÂÁö È®ÀÎ
-git init°ú
-git remote origin ÇÏ¸é ±× °íÀÚ¾î ¹Ýº¹ ³ë ÇÊ¿ä
+### ì‹¤í—˜ìœ¼ë¡œ ì´ ì•„ëž˜ëŠ” ì¶”ê°€ëœ ë©”ì„¸ì§€ë¡œ ì–´ë–»ê²Œ ì—…ë°ì´íŠ¸ ë˜ëŠ”ì§€ í™•ì¸
+git initê³¼
+git remote origin í•˜ë©´ ê·¸ ê³ ìžì–´ ë°˜ë³µ ë…¸ í•„ìš”
 git status >> git add. >> git  comit -m "messege" >> git push origin master
-±Ùµ¥ ³ª¸¸ °ü¸®ÇÏ´Â °æ¿ì´Â pullÀ» ÇÒ ÀÌÀ¯ ¾ø´Â°Ç°¡??
+ê·¼ë° ë‚˜ë§Œ ê´€ë¦¬í•˜ëŠ” ê²½ìš°ëŠ” pullì„ í•  ì´ìœ  ì—†ëŠ”ê±´ê°€??
+sdfsdfds
