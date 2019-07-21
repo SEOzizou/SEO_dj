@@ -21,3 +21,9 @@ git commit -m "message"
 
 git push origin +master
 실제로 git에 푸쉬를 요청하는 명령어 
+
+### 실험으로 이 아래는 추가된 메세지로 어떻게 업데이트 되는지 확인
+git init과
+git remote origin 하면 그 고자어 반복 노 필요
+git status >> git add. >> git  comit -m "messege" >> git push origin master
+근데 나만 관리하는 경우는 pull을 할 이유 없는건가??
