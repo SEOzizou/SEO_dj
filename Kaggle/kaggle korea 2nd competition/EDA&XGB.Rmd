@@ -1,0 +1,596 @@
+---
+title: "kaggle korea 2nd competition 집값 예측"
+author: "SEO_DJ"
+date: "2019년 4월 15일"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = F, message = F)
+```
+
+kaggle korea 2nd competition  
+https://www.kaggle.com/erikbruin/house-prices-lasso-xgboost-and-a-detailed-eda  
+위의 커널을 많이 참조하여 코드를 작성하였습니다. 
+
+
+**Competition background** 
+내 집 마련의 꿈은 누구나 가지고 있습니다. 하지만 집의 가격은 누구나 알고 있지는 않죠. 집의 가격은 주거 공간의 면적, 위치, 경관, 건물의 연식 등 
+여러 가지 복잡한 요인의 조합에 의해 결정됩니다. 
+이번에 분석하실 데이터는 20개의 변수를 가지고 있으며, 어떤 조건을 가진 집의 가격이 높고 낮은지를 예측하는 모델을 만드는 것을 목표로 합니다.
+이번 대회는 리더보드 점수뿐만 아니라 캐글의 공유 정신의 기본인 커널 작성을 장려하는 목표를 가지고 있습니다.
+
+# load library & Data
+
+## Load library
+
+```{r pressure, echo=T}
+library(xgboost)
+library(tidyverse)
+library(corrplot)
+library(gridExtra)
+library(caret)
+library(e1071)
+```
+
+##Load Data and simple processing
+train 15035 row 21개의 column\
+test 6468개의 row 20개의 column
+```{r}
+train <- read.csv("D:\\공모전\\2019 2nd ML month with KaKR\\train.csv",stringsAsFactors = F)
+test<-read.csv("D:\\공모전\\2019 2nd ML month with KaKR\\test.csv",stringsAsFactors = F)
+list(train = dim(train), test = dim(test))
+```
+
+id 정보를 따로 저장해두고 데이터셋에서 지운다.
+```{r}
+test_id <- test$id
+train_id <- train$id
+test$id <- NULL
+train$id <- NULL
+test$price <- NA
+all <- rbind(train, test)
+dim(all)
+```
+
+--date 날짜 변환이 필요해 보인다.\
+--waterfront, view, condition, grade ... 등 몇개의 변수들은 factor형으로 변환이 필요하다.
+
+```{r}
+str(all)
+
+```
+
+
+### Missing data check
+test set 의 price를 제외하고는 결측치는 없다.\
+```{r}
+colSums(is.na(all))
+```
+
+
+# correlationplot
+--변수별로 선형상관계수를 봤더니 sqft_living, grade 가 price랑 높은 상관계수를 가지고 있다.\
+--sqft 변수간에 높은 상관계수를 보인다
+```{r}
+all_numVar<-all %>% filter(!is.na(price)) %>% select(-which(names(all) %in% c("date","days"))) 
+cor_numVar <- cor(all_numVar, use="pairwise.complete.obs") #correlations of all numeric variables
+price_cor_sorted_name <- names(sort(-cor_numVar[,'price'])) #sorting by cor value
+correlation <- cor_numVar[price_cor_sorted_name,price_cor_sorted_name]
+corrplot.mixed(correlation, tl.col="black", tl.pos = "lt")
+```
+
+```{r,echo=F}
+corrplot.mixed(correlation[1:8,1:8], tl.col="black", tl.pos = "lt")
+```
+
+#Variable exploring
+
+##
+
+```{r}
+custom_boxplot <- function(data_set, factor_variable, response_variable){
+  ggplot(data_set , aes(x = as.factor(factor_variable), y = response_variable, fill =as.factor(factor_variable)))+ geom_boxplot() + 
+    theme(legend.position="none")+
+    geom_label(stat = "count", aes(label = ..count.., y = ..count..-..count..+as.integer(min(all$log_price, na.rm = T))), size=4) +
+    xlab(deparse(substitute(factor_variable)))+
+    ylab(deparse(substitute(response_variable)))
+}
+#
+custom_point <- function(data_set, num_variable, response_variable){
+  ggplot(data_set , aes(x = num_variable, y = response_variable)) +
+    geom_point(col = "blue", alpha = 0.5) +
+    geom_smooth(col = "red1") +
+    xlab(deparse(substitute(num_variable)))+
+    ylab(deparse(substitute(response_variable)))
+}
+
+#
+custom_hist <- function(data_set, variable){
+  ggplot(data=data_set, aes(x=variable)) +
+    geom_histogram(fill="white",colour = "steelblue") +
+    geom_density(stat="bin", color = "red", size = .7) +
+    xlab(deparse(substitute(variable)))
+}
+
+#
+set_process <- function(data_set){
+  train <- data_set[!is.na(data_set$price),]
+  test <- data_set[is.na(data_set$price),]
+  return(list(train,test))
+}
+
+
+```
+
+##Price(response variable)
+price의 분포가 한 쪽으로 치우쳐저 있다.\
+```{r}
+custom_hist(train, train$price) +
+  xlab("price")
+```
+log변환이 좋을것 같아 log변환을 하였더니 분포가 정규분포 같이 변했다.
+```{r}
+custom_hist(train, log(train$price))+
+  xlab("log_price")
+```
+
+```{r}
+all <- all %>% mutate(log_price = log(price))
+a <- set_process(all);train <- a[[1]]; test <- a[[2]]
+
+```
+
+##sqft_living & sqft_living15
+sqft_living & sqft_living15 둘 다 price와 높은 선형관계를 보이고 분포가 한쪽으로 치우쳐있다.\
+sqft_living 가 높으면 sqft_living15도 높은 경향보 보인다.\
+(8913, 5109번째 열은 sqft_living에 비해 sqft_living이 낮은 값을 보인다.)\
+
+```{r}
+#sqft_living area(numrice variable)
+s1 <- custom_point(train, train$sqft_living, train$log_price) + 
+  geom_text(aes(label=ifelse(all[!is.na(all$log_price),]$sqft_living >  12500,rownames(train),'')),hjust=0,vjust=0)
+
+s2 <- custom_hist(train, train$sqft_living)
+
+s3 <- custom_point(train, train$sqft_living15, train$log_price)
+
+s4 <- custom_hist(train, train$sqft_living15)
+
+s5 <- custom_point(train, train$sqft_living, train$sqft_living15) +
+  xlab("sqft_living") +
+  ylab("Sqft_living_15") + 
+  geom_text(aes(label=ifelse((train$sqft_living) > 12000,rownames(train),'')),hjust=0,vjust=0)
+
+grid.arrange(s1,s2,s3,s4, s5, layout_matrix = rbind(c(1,2),c(3,4),c(5,5)))
+
+```
+8913 outlier 후보\
+```{r}
+all[8913,]
+```
+##sqft_lot
+sqft_lot & sqft_lot15 이 크다고 집값이 높은지는 잘 모르겠으며\
+sqft_lot & sqft_lot15의 분포는 한쪽으로 심하게 치우쳐저있다.
+```{r}
+s1 <- custom_point(train, train$sqft_lot, train$log_price)
+
+s2 <- custom_hist(train, train$sqft_lot)
+
+s3 <- custom_point(train, train$sqft_lot15, train$log_price)
+
+s4 <- custom_hist(train, train$sqft_lot15)	
+
+s5 <- custom_point(train, train$sqft_living, train$sqft_living15) +
+  xlab("sqft_lot") +
+  ylab("Sqft_lot15")
+
+grid.arrange(s1,s2,s3,s4, s5, layout_matrix = rbind(c(1,2),c(3,4),c(5,5)))
+
+```
+
+sqft_living이 높다고 sqft_lot이 높은것은 아니다.(15도 마찬가지)\
+```{r}
+s1 <- custom_point(train, train$sqft_living, train$sqft_lot) + 
+  ylim(0, 50000)
+
+s2 <- custom_point(train, train$sqft_living15, train$sqft_lot15) +
+  ylim(0, 50000)
+
+grid.arrange(s1,s2)
+```
+
+##sqft_above
+sqft_above도 sqft_living과 마찬가지로 커질수록 높은 집값을 가지고 분포가 한 쪽으로 치우쳐저있다.\
+```{r}
+s1 <- custom_point(train, train$sqft_above, train$log_price)
+
+s2 <- custom_hist(train, train$sqft_above)
+
+grid.arrange(s1,s2, ncol = 2)
+```
+
+sqft_above sqft_living와 높은 선형관게를 보였다.(0.88)\
+그 결과 sqft_living과 sqft_above와 정확히 일치하는 집들이 있었다.
+```{r}
+custom_point(train, train$sqft_above, train$sqft_living) +
+  geom_abline() +
+  geom_smooth(data = NULL)
+```
+
+
+##sqft_basement
+sqft_basement와 price와 관계 잘 모르겠다.\
+그리고 sqft_basement가 0인 집들이 많이 있다.\
+```{r}
+#sqft_basement
+s1 <- custom_point(train, train$sqft_basement, train$log_price)
+
+s2<- custom_hist(train, train$sqft_basement)
+
+grid.arrange(s1,s2)
+```
+
+sqft_living 와 (sqft_above + sqft_basement)의 correlation값이 1이므로 
+**sqft_living = sqft_above + sqft_basement**\
+```{r}
+cor(all$sqft_living, (all$sqft_above+all$sqft_basement))
+```
+sqft_basement 가 0인 집들 basement가 없다고 판단되어 basement의 유무를 판단하는 새로운 feature를 
+생성하였다.\
+
+```{r}
+all<- all %>% mutate(bsmt_is = as.factor(ifelse(all$sqft_basement == 0, 0, 1)))
+a <- set_process(all);train <- a[[1]]; test <- a[[2]]
+```
+basement의 유무에 따라 집값을 본 결과 basement가 있는 집이 좀 더 비싼 집들인 경향이 있었다.\ 
+```{r}
+custom_boxplot(train, train$bsmt_is, train$log_price)
+```
+
+##grade
+grade 별로 집값의 차이가 나는것을 볼 수 있다.\
+-- grade에 비해 높은 or 낮은 집들이 보인다.(outliers)\
+-- 1, 2, 3 grade의 집들 거의 없다.\
+
+```{r}
+custom_boxplot(train, train$grade, train$log_price)
+```
+grade에 비해 집값이 낮거나 높은 집들 봤다.
+```{r}
+library(kableExtra)
+all %>% filter((grade == 11 & log_price >= 15.5) | (grade == 7 & log_price >= 14.5) |
+                 (grade == 8 & log_price >= 14.5) | (grade == 7 & log_price <= 11.5)) %>% 
+  kable() %>% kable_styling()
+
+#all$grade <- ifelse(all$grade<=3, 4, all$grade)
+#all[all$grade <=3,] #2303,4124,13523,15346
+```
+
+##Date variable
+date 변수를 이용하여 year, month, days변수를 만든다.\
+```{r}
+all <- all %>% mutate(year = as.numeric(substr(date,1,4))) %>%
+  mutate(month = as.numeric(substr(date, 5, 6))) %>%
+  mutate(day = as.numeric(substr(date, 7, 8))) %>%
+  mutate(days = ifelse(day > 21, "21~31", ifelse(day<=10, "1~10", "11~20")))
+a <- set_process(all);train <- a[[1]]; test <- a[[2]]
+```
+
+
+###year
+연도별 월별 일별 가격차이가 있는건 같지 않다.\
+월별에서 보면 11, 12, 1, 2 (겨울)에 집의 거래량이 적은 경향이 있다.\
+```{r}
+
+s1 <- custom_boxplot(train, train$year, train$log_price)
+
+s2 <- ggplot(all %>% filter(!is.na(price)) , aes(x=price, fill = as.factor(year), alpha=0.2)) +
+  geom_histogram() +
+  scale_x_continuous(limits = c(0, 4000000))
+
+s3 <- custom_boxplot(train, train$month, train$log_price)
+
+s4 <- custom_boxplot(train, train$days, train$log_price)
+
+grid.arrange(s1,s2,s3,s4, layout_matrix = rbind(c(1,2),c(3,3),c(4,4)))
+```
+
+2014년은 5월~12월 2015년은 1월~5월까지이기 때문에 연도별 거래량 차이가 난다.\
+```{r}
+all %>% mutate(yr_mo = paste0(year, month)) %>% {table(.$yr_mo)}
+```
+
+### seasonal variable 생성
+11, 12, 1, 2월에 거래량 적으므로 이 시기에 속하는 변수 생성했다.
+```{r}
+all$seasonal <- as.factor(ifelse(as.character(all$month) %in% c('1','2','11','12'), 0, 1))
+ggplot(all, aes(x=seasonal, y=log_price))+
+  geom_boxplot()
+```
+
+##bedrooms & bathrooms
+bedrooms & bathrooms 값이 커질수록 집값비싼 경향이 있다.\
+(bedrooms 커질수록 집값에 미치는 영향 작아진다.?)
+
+```{r}
+s1 <- custom_boxplot(train, train$bedrooms, train$log_price)
+
+s2 <- custom_boxplot(train, train$bathrooms, train$log_price)
+
+grid.arrange(s1, s2)
+```
+
+##View
+view가 클수록 price높은 경향이 있다.\
+
+```{r}
+custom_boxplot(train, train$view, train$log_price)
+```
+
+## waterfront
+waterfront일수록 log_price가 올라간다.\
+```{r}
+#waterfront
+custom_boxplot(train, train$waterfront, train$log_price)
+```
+waterfront factor 형 자료로 바꿔준다.\
+```{r}
+all$waterfront <-as.factor(all$waterfront)
+```
+
+
+##floor
+floor가  높아진다고 집가격이 높아지는지는 잘 모르겠다.\
+1 과 1.5을 비교해보면 1.5가 가격이 높은 집들이 많고 2와 2.5와 비교하면 2.5가 가격이 높은 집들이 많다.\
+(.5를 가진 집들은 다락방이 있는것 (https://www.kaggle.com/c/2019-2nd-ml-month-with-kakr/discussion/85011))
+```{r}
+custom_boxplot(train, train$floors, train$log_price)
+```
+
+
+```{r}
+all <- all %>%
+  mutate(garret = as.factor(ifelse((floors %% 1) == 0.5, 1, 0))) %>%
+  mutate(floors =  as.factor(as.integer(floors%/% 1)))
+a <- set_process(all);train <- a[[1]]; test <- a[[2]]
+```
+
+##remodeling
+yr_renovated가 0인 집들 remodeling하지 않은 집들이라 생각 할 수 있다.\
+```{r}
+table(all$yr_renovated)
+```
+
+yr_built 값을 yr_renovated 값이 0이면 yr_built로 0이 아니면 yr_renovated 값으로 대체한다.\
+**is_remo : 리모델링을 했는지 여부** 의 변수를 새로 만든다. \
+```{r}
+all<-all %>% mutate(yr_built = ifelse(yr_renovated == 0, yr_built, yr_renovated)) %>% 
+  mutate(is_remo = as.factor(ifelse(yr_renovated == 0, 0, 1)))
+a <- set_process(all);train <- a[[1]]; test <- a[[2]]
+```
+remodeling의 여부에 따라 집값의 차이가 좀 있는거 같다.\
+```{r}
+custom_boxplot(train, train$is_remo, train$log_price)
+```
+
+##yr_built
+yr_built값을 이용해여 건축된 후 몇년이 지났는지 변수를 새로 만든다.\
+**age = year(집이 팔린연도) - yr_built(집이 건축된연도)**
+  ```{r}
+all <- all %>% mutate(age = year - yr_built)
+a <- set_process(all);train <- a[[1]]; test <- a[[2]]
+```
+age와  log_price 관계 명확하지 않다,\
+```{r}
+custom_point(train, train$age, train$log_price)
+```
+
+##condition
+1, 2 값을 가지는 집은 거의 없고 (1, 2), (3, 4, 5) 두 그룹 간의 가격차이는 보이나
+그룹내에서 차이는 명확하지 않다.\
+```{r}
+custom_boxplot(train, train$condition, train$log_price)
+```
+
+
+##zipcode
+zipcode별로 집값의 가격차이가 나는것을 볼 수 있다.\
+```{r}
+ggplot(all %>% filter(!is.na(price)), aes(x =as.factor(reorder(zipcode, price, median)), y = log_price))  +
+  geom_boxplot(outlier.shape = NA) + 
+  theme(axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())
+
+```
+
+```{r}
+
+#zipcode rank 로 zipcode encding
+zipcode_data <- all %>% filter(!is.na(price)) %>% 
+  group_by(zipcode) %>%
+  summarise(median = median(log_price), fst_qrt = quantile(log_price,0.25), 
+            trd_qrt = quantile(log_price, 0.75)) %>%
+  arrange(median)
+
+zipcode_data<-cbind(zipcode_data,c(1:nrow(zipcode_data)))
+zipcode_data <- zipcode_data %>% select(c(1,5)) 
+colnames(zipcode_data)[2] <- "zipcode_rank"
+
+all<-left_join(all, as.data.frame(zipcode_data), by = 'zipcode')
+all$zipcode <- NULL
+
+all$zip_clst<-NULL
+a <- set_process(all);train <- a[[1]]; test <- a[[2]]
+```
+
+```{r}
+custom_boxplot(train, train$zipcode, train$log_price)
+```
+
+
+##long & lat
+
+
+#Feature engineering
+
+## eliminate features
+```{r}
+str(all)
+```
+
+-- 날짜 자료형 큰 의미 없어보이나 다 지우면 오히려 score가 떨어졌다. 자료가 2014~2015년 사이의 자료이니 
+연도, 월을 새로 묶어준 변수를 만들고 나머지 날짜 변수 다 제거한다..
+-- yr_renovated, yr_built 변수는 age와 is_remo를 만드는데 쓰였으므로 필요없다 판단 제거한다.
+```{r}
+names(all)
+all <- all %>% mutate(yr_mo = paste0(year, month)) 
+all<-all[, -which(names(all) %in% c("date", "price","year","month","days","day","yr_renovated","yr_built"))]
+all$yr_mo <- as.factor(all$yr_mo)
+```
+
+##make some new features
+몇개의 새로운 features들을 만든다.
+
+```{r}
+str(all)
+all$sqft <- all$sqft_living/all$sqft_lot #토지대비 주거비율
+all$sqft_chg <- all$sqft_living - all$sqft_living15 # 15년도 이후 변화?
+all$total_rooms <- all$bathrooms + all$bedrooms # 총 방의수 
+```
+
+##correlationplot again
+```{r}
+numericVars <- which(sapply(all, is.numeric)) #index vector numeric variables
+numericVarNames <- names(numericVars) #saving names vector for use later on
+all_numVar <-all[, numericVars] # only numeric column
+cor_numVar <- cor(all_numVar, use="pairwise.complete.obs") #correlations of all numeric variables
+price_cor_sorted_name <- names(sort(-cor_numVar[,'log_price'])) #sorting by cor value
+correlation <- cor_numVar[price_cor_sorted_name,price_cor_sorted_name]
+corrplot.mixed(correlation, tl.col="black", tl.pos = "lt")
+corrplot.mixed(correlation[1:9,1:9], tl.col="black", tl.pos = "lt")
+```
+
+#Preparing data for modeling
+
+## eliminate outlier 
+```{r}
+#2303,4124,13523,15346
+#all <- all[-c(8913,2303,4124,13523,15346),] from grade 
+#all <- all[-8913,]
+
+```
+
+##PreProcessing predictor variables
+데이터를 전처리를 위해 데잉터를 숫자형 변수와 범주형변수로 나눠서 전처리 후에 다시 합친다.
+숫자형 변수의 경우 skewness가 크면 log변환을 해주고 각 변수들을 정규화를 한다.
+범주형 변수의 경우 one-hot-encoding을 통해 새로운 column을 만든다.
+
+```{r}
+#numericVarNames <- append(numericVarNames, c('sqft_living_new', 'sqft_lot_new'))
+DFnumeric <- all[, names(all) %in% numericVarNames]
+DFfactors <- all[, !(names(all) %in% numericVarNames)]
+DFnumeric <- DFnumeric[, names(DFnumeric) != 'log_price']
+cat('There are', length(DFnumeric), 'numeric variables, and', length(DFfactors), 'factor variables')
+## There are 30 numeric variables, and 49 factor variables
+```
+###Skewness and normalizing of the numeric predictors
+**skewness**
+  
+  ```{r}
+for(i in 1:(ncol(DFnumeric))){
+  if (abs(skewness(DFnumeric[,i]))>0.8){
+    DFnumeric[,i] <- log(abs(DFnumeric[,i]) +1)
+  }
+}
+```
+
+**normalizing and scaling**
+  ```{r}
+PreNum <- preProcess(DFnumeric, method=c("center", "scale"))
+DFnorm <- predict(PreNum, DFnumeric)
+
+```
+
+###One hot encoding the categorical variables
+```{r}
+DFdummies <- as.data.frame(model.matrix(~.-1, DFfactors))
+DFdummies$waterfront0 <-NULL # there is a problem  in only waterfron feature 
+combined <- cbind(DFnorm, DFdummies) 
+```
+
+
+##Composing train and test sets
+```{r}
+train1 <- combined[!is.na(all$log_price),]
+test1 <- combined[is.na(all$log_price),]
+names(train1)
+```
+
+##XGboost
+
+```{r}
+library(xgboost)
+
+xgb_grid = expand.grid(
+  nrounds = 1000,
+  eta = c(0.1, 0.05, 0.01),
+  max_depth = c(3, 4, 5, 6, 7, 8),
+  gamma = c(0,1,2,3),
+  colsample_bytree=c(0.4, 0.7, 1.0),
+  min_child_weight=c(1, 2, 3, 4 ,5),
+  subsample=c(0.3,0.7,1)
+)
+
+my_control = trainControl(
+  method = "repeatedcv",
+  number = 5,  
+  allowParallel = TRUE,
+  search = "random"
+)
+
+#xgb_caret <- train(x=train1, y=all$log_price[!is.na(all$log_price)], method='xgbTree', trControl= my_control, tuneGrid=xgb_grid)
+#xgb_caret$bestTune
+
+label_train <- all$log_price[!is.na(all$log_price)]
+
+
+#need tuning paramater
+default_param<-list(
+  objective = "reg:linear",
+  booster = "gbtree",
+  eta=0.05, #default = 0.3
+  gamma=0,
+  max_depth=7, #default=6
+  min_child_weight=3, #default=1
+  subsample=0.8,
+  colsample_bytree=0.5
+)
+
+label_train <- all$log_price[!is.na(all$log_price)]
+
+# put our testing & training data into two seperates Dmatrixs objects
+dtrain <- xgb.DMatrix(data = as.matrix(train1), label= label_train)
+dtest <- xgb.DMatrix(data = as.matrix(test1))
+
+
+set.seed(1001)
+#xgbcv <- xgb.cv( params = default_param, data = dtrain, nrounds = 1200, nfold = 5, showsd = T, stratified = T, print_every_n = 60, early_stopping_rounds = 20, maximize = F)
+#613
+
+#train the model using the best iteration found by cross validation
+xgb_mod <- xgb.train(data = dtrain, params=default_param, nrounds = 532)
+XGBpred <- predict(xgb_mod, dtest)
+predictions_XGB <- exp(XGBpred) #need to reverse the log to the real values
+
+#view variable importance plot
+mat <- xgb.importance (feature_names = colnames(train1),model = xgb_mod)
+xgb.ggplot.importance(importance_matrix = mat[1:20], rel_to_first = TRUE)
+
+library(data.table)
+preds = data.table(id=test_id, price=(predictions_XGB))
+
+write_csv(preds, 'submission.csv')
+
+
+```
